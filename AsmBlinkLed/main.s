@@ -1,60 +1,60 @@
-	PRESERVE8							; 8-битное выравнивание стека
-	THUMB								; Режим Thumb (AUL) инструкций
+    PRESERVE8
+    THUMB
+    GET		  config.s
+    GET       stm32f10x.s    
 
-	GET	config.s						; include-файлы
-	GET	stm32f10x.s	
+    AREA      RESET, CODE, READONLY
 
-	AREA RESET, CODE, READONLY
+    DCD       STACK_TOP
+    DCD       Reset_Handler
 
-	; Таблица векторов прерываний
-	DCD STACK_TOP						; Указатель на вершину стека
-	DCD Reset_Handler					; Вектор сброса
+    ENTRY
 
-	ENTRY								; Точка входа в программу
+Reset_Handler    PROC
+    EXPORT    Reset_Handler
 
-Reset_Handler	PROC					; Вектор сброса
-	EXPORT  Reset_Handler				; Делаем Reset_Handler видимым вне этого файла
+main
+    MOV32     R0, 0x20000200		; R0 - array start (arr)
+    MOV       R1, #50     			; R1 - array size (size)
+    MOV       R2, #0                ; R2 - array position (pos)
+    MOV       R3, R1                ; R3 - half of array size (half_size)
+    ASR       R3, #1                ; R3 == 25
 
-main									; Основная подпрограмма
-	MOV32	R0, PERIPH_BB_BASE + \
-			RCC_APB2ENR * 32 + \
-			4 * 4						; вычисляем адрес для BitBanding 4-го бита регистра RCC_APB2ENR
-										; BitAddress = BitBandBase + (RegAddr * 32) + BitNumber * 4
-	MOV		R1, #1						; включаем тактирование порта D (в 4-й бит RCC_APB2ENR пишем '1`)
-	STR 	R1, [R0]					; загружаем это значение
+loop
+	CMP       R2, R3                ; while (pos != half_size)
+	BLNE 	  swap
 	
-	MOV32	R0, GPIOC_CRH				; адрес порта
-	MOV		R1, #0x3					; 4-битная маска настроек для Output mode 50mHz, Push-Pull ("0011")
-	LDR		R2, [R0]					; считать порт
-    BFI		R2, R1, #4, #4    			; скопировать биты маски в позицию PIN9
-    STR		R2, [R0]					; загрузить результат в регистр настройки порта
+	B         loop
 
-loop									; Бесконечный цикл
-    MOV32	R0, GPIOC_BSRR				; адрес порта выходных сигналов
+    ENDP
 
-	MOV 	R1, #(PIN9)					; устанавливаем вывод в '1'
-	STR 	R1, [R0]					; загружаем в порт
-	
-	BL		delay						; задержка
-	
-	MOV		R1, #(PIN9 << 16)			; сбрасываем в '0'
-	STR 	R1, [R0]					; загружаем в порт
-	
-	BL		delay						; задержка
+swap          PROC
+	;  l-->         <--r  - left and right positions (l, r)
+	; [0 1 2 3 ... 48 49] - array
+    MOV       R4, R0 				; R4 - address of l
+    MOV       R5, R2 				; R5 == pos
+    LSL       R5, #3 				; R5 == pos * 8
+    ADD       R4, R5 				; R4 == arr + pos * 8
 
-	B 		loop						; возвращаемся к началу цикла
-	
-	ENDP
+    MOV       R5, R0 				; R5 - address of r
+    MOV       R6, R1 				; R6 == size
+    SUB       R6, R2 				; R6 == size - pos
+    SUB       R6, #1 				; R6 == size - pos - 1
+    LSL       R6, #3 				; R6 == (size - pos - 1) * 8
+    ADD       R5, R6 				; R5 == arr + (size - pos - 1) * 8
 
-delay		PROC						; Подпрограмма задержки
-	PUSH	{R0}						; Загружаем в стек R0, т.к. его значение будем менять
-	LDR		R0, =DELAY_VAL				; псевдоинструкция Thumb (загрузить константу в регистр)
-delay_loop
-	SUBS	R0, #1						; SUB с установкой флагов результата
-	IT 		NE
-	BNE		delay_loop					; переход, если Z==0 (результат вычитания не равен нулю)
-	POP		{R0}						; Выгружаем из стека R0
-	BX		LR							; выход из подпрограммы (переход к адресу в регистре LR - вершина стека)
-	ENDP
+    LDR       R6, [R4] 				; R6 - l
+    LDR       R7, [R5] 				; R7 - r
+
+	MOV		  R8, R6   				; R8 - tmp, R8 == l
+	BFI 	  R6, R7, #0, #8 		; l = r
+	BFI 	  R7, R8, #0, #8 		; r = l		
+    STR       R6, [R5] 				; *(address of r) = l  
+    STR       R7, [R4] 				; *(address of l) = r
+
+    ADD       R2, #1   				; pos++
 	
+	BX		  LR
+    ENDP
+ 
     END
